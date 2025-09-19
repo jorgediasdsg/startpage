@@ -1,0 +1,550 @@
+<!--
+  Página Inicial — Hacker/Cupertino Minimalista (PT‑BR)
+  Atualização: favoritos via botão (sem inputs poluindo), coluna única, responsivo mobile,
+  ícone do favorito via favicon do domínio com fallback e nome sugerido pelo hostname.
+  Observação técnica: obter *exatamente* o <title> e o favicon definido por <link rel="icon">
+  de páginas remotas não é possível somente no front‑end por causa de CORS/SOP. Implemento
+  a melhor aproximação segura no cliente: 1) tenta `${origin}/favicon.ico`; 2) fallback Google s2 favicons.
+-->
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="hacker">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Página Inicial — Hacker/Cupertino</title>
+  <style>
+    :root {
+      --radius: 16px;
+      --pad: 14px;
+      --gap: 14px;
+
+      /* Hacker (default) */
+      --bg: #0b0f0d;
+      --panel: rgba(18, 24, 22, 0.8);
+      --text: #c7ffdf;
+      --muted: #6ee7b7;
+      --accent: #00ff88;
+      --line: #11ff88;
+      --border: rgba(0, 255, 136, 0.18);
+      --shadow: 0 10px 24px rgba(0, 255, 136, 0.08);
+      --input: rgba(0, 0, 0, 0.35);
+    }
+
+    html[data-theme="cupertino-light"] {
+      --bg: #f5f5f7;
+      --panel: #ffffffcc;
+      --text: #1d1d1f;
+      --muted: #6e6e73;
+      --accent: #0a84ff;
+      --line: #9ba3af;
+      --border: #e5e5ea;
+      --shadow: 0 10px 24px rgba(0,0,0,0.08);
+      --input: #f2f2f7;
+    }
+
+    html[data-theme="cupertino-dark"] {
+      --bg: #000000;
+      --panel: #0a0a0acc;
+      --text: #f5f5f7;
+      --muted: #9a9aa0;
+      --accent: #0a84ff;
+      --line: #2c2c2e;
+      --border: #2c2c2e;
+      --shadow: 0 10px 24px rgba(0,0,0,0.5);
+      --input: #1c1c1e;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      color: var(--text);
+      background: var(--bg);
+      overflow: hidden; /* canvas full-screen */
+    }
+
+    /* Background canvas */
+    #bgCanvas {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background: var(--bg);
+      touch-action: none;
+    }
+
+    /* Topbar */
+    header.topbar {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px clamp(12px, 3vw, 22px);
+      backdrop-filter: blur(10px);
+      background: linear-gradient(180deg, rgba(0,0,0,0.0), rgba(0,0,0,0.0));
+    }
+
+    .greet { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    .greet h1 { margin: 0; font-size: clamp(18px, 2.4vw, 22px); letter-spacing: 0.4px; }
+    .muted { color: var(--muted); font-weight: 500; }
+
+    .clock { font-variant-numeric: tabular-nums; font-size: clamp(18px, 3vw, 22px); letter-spacing: 0.6px; }
+
+    .icon-btn {
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 8px 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      box-shadow: var(--shadow);
+      transition: transform .12s ease, background .2s ease, border-color .2s ease;
+    }
+    .icon-btn:hover { transform: translateY(-1px); border-color: var(--accent); }
+
+    main { position: relative; z-index: 1; padding: 0 clamp(12px, 3vw, 22px) clamp(12px, 3vw, 22px); }
+
+    /* Coluna única fluida */
+    .stack { display: grid; grid-template-columns: 1fr; gap: var(--gap); max-width: 900px; margin: 0 auto; }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: var(--pad);
+      box-shadow: var(--shadow);
+      min-height: 120px;
+      backdrop-filter: blur(10px);
+    }
+
+    .card h2 { margin: 0 0 12px; font-size: 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .col { display: flex; flex-direction: column; gap: 8px; }
+
+    input[type="text"], input[type="url"], input[type="number"], select {
+      width: 100%; border: 1px solid var(--border); border-radius: 12px; background: var(--input); color: var(--text); padding: 10px 12px; outline: none;
+    }
+
+    .btn { border: 1px solid var(--border); background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.0)); color: var(--text); border-radius: 12px; padding: 10px 14px; cursor: pointer; transition: transform .08s ease, border-color .2s ease; }
+    .btn.primary { border-color: var(--accent); }
+    .btn:hover { transform: translateY(-1px); }
+
+    /* Favoritos */
+    .bookmarks-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+    .bookmark { display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--border); border-radius: 12px; background: rgba(0,0,0,0.08); min-height: 44px; }
+    .bookmark img { width: 22px; height: 22px; border-radius: 6px; object-fit: cover; background: #111; }
+    .bookmark a { color: var(--text); text-decoration: none; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bookmark .del { margin-left: auto; font-size: 12px; opacity: .8; cursor: pointer; }
+    .fab { border: 1px dashed var(--border); background: var(--panel); color: var(--text); border-radius: 999px; padding: 8px 12px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+
+    /* Tarefas */
+    .todo-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--border); }
+    .todo-item:last-child { border-bottom: none; }
+    .todo-item input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
+    .todo-item .text { flex: 1; }
+    .todo-item.done .text { text-decoration: line-through; opacity: .7; }
+    .todo-item .del { cursor: pointer; opacity: .8; font-size: 12px; }
+
+    /* Pomodoro */
+    .pomodoro-timer { font-variant-numeric: tabular-nums; font-size: 40px; text-align: center; margin: 10px 0 6px; }
+    .pomodoro-status { text-align: center; color: var(--muted); margin-bottom: 10px; }
+    .cycles { display: flex; justify-content: center; gap: 6px; margin-bottom: 10px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
+    .dot.active { background: var(--accent); }
+
+    /* Spotify */
+    .spotify-embed { width: 100%; height: 232px; border: 0; border-radius: 12px; }
+
+    /* Frase */
+    .quote { font-style: italic; line-height: 1.6; }
+
+    /* Mobile tweaks */
+    @media (max-width: 640px) {
+      body { overflow: auto; } /* permite scroll no mobile */
+      .pomodoro-timer { font-size: 36px; }
+    }
+
+    /* Modal base */
+    .modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 5; }
+    .modal.open { display: flex; }
+    .modal .backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.5); }
+    .modal .content { position: relative; z-index: 1; width: min(680px, 92vw); background: var(--panel); border: 1px solid var(--border); border-radius: 18px; padding: 18px; box-shadow: var(--shadow); }
+    .modal h3 { margin: 0 0 12px; }
+    .modal .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    @media (max-width: 680px) { .modal .grid-2 { grid-template-columns: 1fr; } }
+
+    label { font-size: 12px; color: var(--muted); }
+
+    /* Modal específico de favoritos */
+    .hint { font-size: 12px; color: var(--muted); }
+    details summary { cursor: pointer; user-select: none; }
+  </style>
+</head>
+<body>
+  <canvas id="bgCanvas"></canvas>
+
+  <header class="topbar">
+    <div class="greet">
+      <h1>Olá, <span id="userName" class="muted">Visitante</span></h1>
+      <span id="userRegion" class="muted"></span>
+    </div>
+    <div class="row">
+      <div class="clock" id="clock">00:00:00</div>
+      <button class="icon-btn" id="btnSettings" title="Configurações" aria-label="Configurações">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" stroke="currentColor" stroke-width="1.5"/><path d="M19.4 13.5a7.93 7.93 0 0 0 .06-1.5 7.94 7.94 0 0 0-.06-1.5l2.02-1.57a.5.5 0 0 0 .12-.65l-1.91-3.3a.5.5 0 0 0-.6-.22l-2.38.96a7.88 7.88 0 0 0-2.6-1.5l-.36-2.52A.5.5 0 0 0 12.6 0h-3.2a.5.5 0 0 0-.5.43l-.36 2.52c-.96.34-1.84.84-2.63 1.5l-2.37-.96a.5.5 0 0 0-.6.23L.14 7.06a.5.5 0 0 0 .12.65L2.28 9.3c-.04.5-.06 1-.06 1.5s.02 1 .06 1.5l-2.02 1.57a.5.5 0 0 0-.12.65l1.91 3.3c.14.22.4.31.64.22l2.38-.96c.78.66 1.67 1.16 2.62 1.5l.36 2.52a.5.5 0 0 0 .5.43h3.2a.5.5 0 0 0 .5-.43l.36-2.52c.95-.34 1.83-.84 2.62-1.5l2.38.96c.24.09.5 0 .64-.22l1.91-3.3a.5.5 0 0 0-.12-.65L19.4 13.5Z" stroke="currentColor" stroke-width="1.5"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <div class="stack">
+      <!-- Favoritos -->
+      <section class="card">
+        <h2>
+          Favoritos
+          <button id="openBm" class="fab" title="Cadastrar favorito" aria-label="Cadastrar favorito">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            Adicionar
+          </button>
+        </h2>
+        <div id="bookmarks" class="bookmarks-list" style="margin-top:10px;"></div>
+      </section>
+
+      <!-- Tarefas -->
+      <section class="card">
+        <h2>Tarefas</h2>
+        <div class="row">
+          <input id="todoInput" type="text" placeholder="Nova tarefa..." />
+          <button id="addTodo" class="btn">Adicionar</button>
+        </div>
+        <div id="todoList" class="col" style="margin-top:10px;"></div>
+      </section>
+
+      <!-- Pomodoro -->
+      <section class="card">
+        <h2>Pomodoro</h2>
+        <div class="pomodoro-status" id="pomStatus">Pronto para focar</div>
+        <div class="pomodoro-timer" id="pomTimer">25:00</div>
+        <div class="cycles" id="pomCycles"></div>
+        <div class="row" style="justify-content:center; gap:8px;">
+          <button id="pomStart" class="btn primary">Iniciar</button>
+          <button id="pomPause" class="btn">Pausar</button>
+          <button id="pomReset" class="btn">Reset</button>
+        </div>
+      </section>
+
+      <!-- Spotify -->
+      <section class="card">
+        <h2>Spotify</h2>
+        <div class="col">
+          <input id="spotifyUrl" type="url" placeholder="Cole uma URL do Spotify (faixa/playlist/álbum)" />
+          <button id="spotifySave" class="btn">Salvar</button>
+          <iframe id="spotifyFrame" class="spotify-embed" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture;" loading="lazy"></iframe>
+        </div>
+      </section>
+
+      <!-- Frase do dia -->
+      <section class="card">
+        <h2>Frase filosófica do dia</h2>
+        <div id="quote" class="quote"></div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Modal Configurações -->
+  <div class="modal" id="settingsModal" aria-hidden="true">
+    <div class="backdrop" data-close></div>
+    <div class="content" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <h3 id="settingsTitle">Configurações</h3>
+      <div class="grid-2">
+        <div class="col">
+          <label for="setName">Seu nome</label>
+          <input id="setName" type="text" placeholder="Ex.: Jow" />
+        </div>
+        <div class="col">
+          <label for="setRegion">Região (Fuso horário IANA)</label>
+          <input id="setRegion" type="text" placeholder="Ex.: America/Sao_Paulo" list="tzList" />
+          <datalist id="tzList">
+            <option value="America/Sao_Paulo"></option>
+            <option value="America/New_York"></option>
+            <option value="Europe/Lisbon"></option>
+            <option value="Europe/London"></option>
+            <option value="Asia/Tokyo"></option>
+            <option value="UTC"></option>
+          </datalist>
+        </div>
+        <div class="col">
+          <label for="setTheme">Tema</label>
+          <select id="setTheme">
+            <option value="hacker">Hacker (preto + verde)</option>
+            <option value="cupertino-light">Cupertino Claro</option>
+            <option value="cupertino-dark">Cupertino Escuro</option>
+          </select>
+        </div>
+        <div class="col"></div>
+        <div class="col">
+          <label for="setWork">Sprint (min)</label>
+          <input id="setWork" type="number" min="1" max="180" />
+        </div>
+        <div class="col">
+          <label for="setShort">Descanso curto (min)</label>
+          <input id="setShort" type="number" min="1" max="60" />
+        </div>
+        <div class="col">
+          <label for="setLong">Descanso longo (min)</label>
+          <input id="setLong" type="number" min="1" max="120" />
+        </div>
+        <div class="col">
+          <label for="setLongEvery">Descanso longo a cada</label>
+          <input id="setLongEvery" type="number" min="2" max="12" />
+        </div>
+      </div>
+      <div class="row" style="justify-content:flex-end; margin-top:12px; gap:8px;">
+        <button data-close class="btn">Cancelar</button>
+        <button id="settingsSave" class="btn primary">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Favoritos -->
+  <div class="modal" id="bmModal" aria-hidden="true">
+    <div class="backdrop" data-close></div>
+    <div class="content" role="dialog" aria-modal="true" aria-labelledby="bmTitle">
+      <h3 id="bmTitle">Novo favorito</h3>
+      <div class="col">
+        <label for="bmUrl2">URL</label>
+        <input id="bmUrl2" type="url" placeholder="https://exemplo.com/" />
+        <span class="hint">O nome será sugerido pelo hostname. Ícone tenta o favicon real do domínio.</span>
+      </div>
+      <details style="margin-top:8px;">
+        <summary>Opções avançadas (editar nome/ícone)</summary>
+        <div class="grid-2" style="margin-top:8px;">
+          <div class="col">
+            <label for="bmName2">Nome (opcional)</label>
+            <input id="bmName2" type="text" placeholder="Se vazio, uso o hostname" />
+          </div>
+          <div class="col">
+            <label for="bmIcon2">URL do ícone (opcional)</label>
+            <input id="bmIcon2" type="url" placeholder="${origin}/favicon.ico" />
+          </div>
+        </div>
+      </details>
+      <div class="row" style="justify-content:flex-end; margin-top:12px; gap:8px;">
+        <button data-close class="btn">Cancelar</button>
+        <button id="bmSave2" class="btn primary">Salvar favorito</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ===== Utilidades de armazenamento =====
+    const store = {
+      get(key, fallback) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; } },
+      set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} }
+    };
+
+    // ===== Configurações =====
+    const DEFAULTS = {
+      name: "Visitante",
+      region: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Sao_Paulo",
+      theme: "hacker",
+      pomodoro: { work: 25, short: 5, long: 15, longEvery: 4 },
+      spotify: ""
+    };
+    const qs = id => document.getElementById(id);
+
+    function getSettings() { return { ...DEFAULTS, ...store.get('settings', {}) }; }
+    function saveSettings(s) { store.set('settings', s); }
+
+    function applySettings() {
+      const s = getSettings();
+      document.documentElement.setAttribute('data-theme', s.theme);
+      qs('userName').textContent = s.name || 'Visitante';
+      qs('userRegion').textContent = s.region ? `• ${s.region}` : '';
+      setSpotifyUrl(s.spotify);
+      // preload modal fields
+      qs('setName').value = s.name; qs('setRegion').value = s.region; qs('setTheme').value = s.theme;
+      qs('setWork').value = s.pomodoro.work; qs('setShort').value = s.pomodoro.short; qs('setLong').value = s.pomodoro.long; qs('setLongEvery').value = s.pomodoro.longEvery;
+      if (window.bg) bg.setColor(getComputedStyle(document.documentElement).getPropertyValue('--line').trim());
+    }
+
+    // ===== Relógio =====
+    function tickClock() {
+      const s = getSettings();
+      const now = new Date();
+      const opts = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: s.region };
+      const time = now.toLocaleTimeString([], opts);
+      qs('clock').textContent = time;
+    }
+    setInterval(tickClock, 250);
+
+    // ===== Frase do dia =====
+    const QUOTES = [
+      'A vida é opinião. — Epicteto',
+      'Você tem poder sobre sua mente, não sobre eventos. — Marco Aurélio',
+      'O destino guia quem consente e arrasta quem resiste. — Sêneca',
+      'Simplicidade é a sofisticação máxima. — eco de Da Vinci',
+      'Conhece-te a ti mesmo. — Delfos',
+      'Nada é permanente, exceto a mudança. — Heráclito',
+      'O que não se mede, não se gerencia. — eco de Deming',
+      'Quem tem um porquê suporta quase qualquer como. — Nietzsche (paráfrase curta)',
+      'Disciplina é liberdade. — eco de Jocko',
+      'Menos ruído, mais sinal. — aforismo'
+    ];
+    function setQuoteOfDay() {
+      const now = new Date();
+      const dayOfYear = Math.floor((Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) - Date.UTC(now.getFullYear(),0,0)) / 86400000);
+      const idx = (now.getFullYear() * 366 + dayOfYear) % QUOTES.length;
+      qs('quote').textContent = QUOTES[idx];
+    }
+
+    // ===== Favoritos =====
+    function normalizeUrl(u){ if(!u) return ''; try { const url = new URL(u.includes('://')?u:'https://'+u); return url.href; } catch { return ''; } }
+    function loadBookmarks(){ return store.get('bookmarks', []); }
+    function saveBookmarks(list){ store.set('bookmarks', list); }
+
+    function hostnameName(u){ try { const url = new URL(u); let h = url.hostname.replace(/^www\./,''); return h; } catch { return u; } }
+    function originFav(u){ try { const url = new URL(u); return url.origin + '/favicon.ico'; } catch { return ''; } }
+    function googleFav(u){ try { const url = new URL(u); return `https://www.google.com/s2/favicons?domain=${url.hostname}&sz=64`; } catch { return ''; } }
+
+    function renderBookmarks(){
+      const wrap = qs('bookmarks');
+      const list = loadBookmarks();
+      wrap.innerHTML = '';
+      list.forEach((b, i) => {
+        const el = document.createElement('div'); el.className = 'bookmark';
+        const img = document.createElement('img'); img.alt = '';
+        img.src = b.icon || originFav(b.url) || googleFav(b.url);
+        img.onerror = () => { const g = googleFav(b.url); if (img.src !== g) img.src = g; };
+        const a = document.createElement('a'); a.href = b.url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = b.name || hostnameName(b.url);
+        const del = document.createElement('span'); del.className = 'del'; del.textContent = '×'; del.title = 'Remover';
+        del.addEventListener('click', () => { const n = loadBookmarks(); n.splice(i,1); saveBookmarks(n); renderBookmarks(); });
+        el.append(img, a, del); wrap.appendChild(el);
+      });
+    }
+
+    // Modal favoritos
+    const bmModal = qs('bmModal');
+    function openBm(){ bmModal.classList.add('open'); bmModal.setAttribute('aria-hidden','false'); setTimeout(()=>qs('bmUrl2').focus(), 0); }
+    function closeBm(){ bmModal.classList.remove('open'); bmModal.setAttribute('aria-hidden','true'); }
+
+    function addBookmark2(){
+      const u = normalizeUrl(qs('bmUrl2').value.trim());
+      if(!u) return alert('Informe uma URL válida.');
+      // Nome sugerido = hostname (limitação CORS impede pegar <title> com segurança no cliente)
+      const name = (qs('bmName2').value.trim()) || hostnameName(u);
+      let icon = qs('bmIcon2').value.trim();
+      if(!icon) icon = originFav(u) || googleFav(u);
+      const list = loadBookmarks(); list.push({ name, url: u, icon }); saveBookmarks(list); renderBookmarks();
+      qs('bmUrl2').value=''; qs('bmName2').value=''; qs('bmIcon2').value=''; closeBm();
+    }
+
+    // ===== Tarefas =====
+    function loadTodos(){ return store.get('todos', []); }
+    function saveTodos(t){ store.set('todos', t); }
+    function renderTodos(){
+      const box = qs('todoList');
+      const todos = loadTodos().sort((a,b)=> Number(a.done) - Number(b.done));
+      box.innerHTML = '';
+      todos.forEach((t, i) => {
+        const row = document.createElement('div'); row.className = 'todo-item' + (t.done ? ' done' : '');
+        const chk = document.createElement('input'); chk.type='checkbox'; chk.checked = t.done;
+        const txt = document.createElement('div'); txt.className='text'; txt.textContent = t.text;
+        const del = document.createElement('span'); del.className='del'; del.textContent='Excluir';
+        chk.addEventListener('change', ()=> { const arr = loadTodos(); arr[i].done = !arr[i].done; saveTodos(arr); renderTodos(); });
+        del.addEventListener('click', ()=> { const arr = loadTodos(); arr.splice(i,1); saveTodos(arr); renderTodos(); });
+        row.append(chk, txt, del); box.appendChild(row);
+      });
+    }
+    function addTodo(){ const inp = qs('todoInput'); const text = inp.value.trim(); if(!text) return; const arr = loadTodos(); arr.push({ text, done:false }); saveTodos(arr); renderTodos(); inp.value=''; }
+
+    // ===== Spotify =====
+    function toSpotifyEmbed(url){
+      if(!url) return '';
+      try {
+        const u = new URL(url);
+        if(u.hostname.includes('spotify.com')) return url.replace('open.spotify.com/', 'open.spotify.com/embed/');
+      } catch{}
+      if(url.startsWith('spotify:')){
+        const parts = url.split(':'); if(parts.length >= 3){ return `https://open.spotify.com/embed/${parts[1]}/${parts[2]}`; }
+      }
+      return '';
+    }
+    function setSpotifyUrl(url){ const frame = qs('spotifyFrame'); const embed = toSpotifyEmbed(url); if(embed){ frame.src = embed; } else { frame.removeAttribute('src'); } qs('spotifyUrl').value = url || ''; }
+
+    // ===== Pomodoro =====
+    const PState = { Idle:'Idle', Work:'Work', Short:'Short', Long:'Long' };
+    let pom = { state: PState.Idle, remaining: 0, cycles: 0, interval: null };
+    function fmtMMSS(sec){ const m = Math.floor(sec/60).toString().padStart(2,'0'); const s=(sec%60).toString().padStart(2,'0'); return `${m}:${s}`; }
+    function renderPom(){ const s = getSettings(); qs('pomTimer').textContent = fmtMMSS(pom.remaining||s.pomodoro.work*60); const status = { [PState.Idle]: 'Pronto para focar', [PState.Work]: 'Foco', [PState.Short]: 'Descanso curto', [PState.Long]: 'Descanso longo' }[pom.state]; qs('pomStatus').textContent = status; const c = qs('pomCycles'); c.innerHTML=''; const n = s.pomodoro.longEvery; for(let i=0;i<n;i++){ const d=document.createElement('div'); d.className='dot'+(i < (pom.cycles % n) ? ' active':'' ); c.appendChild(d); } }
+    function nextPomPhase(){ const s = getSettings(); if(pom.state === PState.Work){ pom.cycles++; if(pom.cycles % s.pomodoro.longEvery === 0){ pom.state = PState.Long; pom.remaining = s.pomodoro.long*60; } else { pom.state = PState.Short; pom.remaining = s.pomodoro.short*60; } } else { pom.state = PState.Work; pom.remaining = s.pomodoro.work*60; } renderPom(); }
+    function startPom(){ if(pom.interval) return; const s = getSettings(); if(pom.state === PState.Idle){ pom.state = PState.Work; pom.remaining = s.pomodoro.work*60; } pom.interval = setInterval(()=>{ if(pom.remaining > 0){ pom.remaining--; renderPom(); } else { clearInterval(pom.interval); pom.interval=null; nextPomPhase(); startPom(); } }, 1000); renderPom(); }
+    function pausePom(){ if(pom.interval){ clearInterval(pom.interval); pom.interval=null; } }
+    function resetPom(){ pausePom(); pom={ state:PState.Idle, remaining:0, cycles:0, interval:null }; renderPom(); }
+
+    // ===== BG Canvas (rede de pontos) =====
+    const bg = (function(){
+      const canvas = document.getElementById('bgCanvas');
+      const ctx = canvas.getContext('2d');
+      let W=0,H=0, DPR = Math.max(1, window.devicePixelRatio || 1);
+      let points = []; let mouse = { x: -9999, y: -9999 };
+      let LINE_COLOR = getComputedStyle(document.documentElement).getPropertyValue('--line').trim() || '#11ff88';
+      function resize(){ W = window.innerWidth; H = window.innerHeight; canvas.width = W*DPR; canvas.height = H*DPR; canvas.style.width = W+'px'; canvas.style.height = H+'px'; ctx.setTransform(DPR,0,0,DPR,0,0); }
+      function init(){ resize(); points = []; const density = Math.min(120, Math.floor((W*H)/22000)); for(let i=0;i<density;i++){ points.push({ x: Math.random()*W, y: Math.random()*H, vx: (Math.random()-0.5)*0.6, vy: (Math.random()-0.5)*0.6 }); } loop(); }
+      function step(){ for(const p of points){ const dx = p.x - mouse.x; const dy = p.y - mouse.y; const d2 = dx*dx + dy*dy; const force = Math.min(10000 / (d2+10000), 0.06); p.vx += -dx * 0.00003 * force; p.vy += -dy * 0.00003 * force; p.x += p.vx; p.y += p.vy; p.vx *= 0.995; p.vy *= 0.995; if(p.x<0||p.x>W) p.vx*=-1; if(p.y<0||p.y>H) p.vy*=-1; } }
+      function draw(){ ctx.clearRect(0,0,W,H); const maxDist = 140; for(let i=0;i<points.length;i++){ for(let j=i+1;j<points.length;j++){ const a = points[i], b = points[j]; const dx = a.x-b.x, dy = a.y-b.y; const d = Math.hypot(dx,dy); if(d < maxDist){ const alpha = 1 - d/maxDist; ctx.strokeStyle = hexToRgba(LINE_COLOR, Math.min(0.7, alpha*0.9)); ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); } } } ctx.fillStyle = hexToRgba(LINE_COLOR, 0.85); for(const p of points){ ctx.beginPath(); ctx.arc(p.x,p.y,1.2,0,Math.PI*2); ctx.fill(); } }
+      function loop(){ step(); draw(); requestAnimationFrame(loop); }
+      function onMouse(e){ const rect = canvas.getBoundingClientRect(); mouse.x = e.clientX - rect.left; mouse.y = e.clientY - rect.top; }
+      function onLeave(){ mouse.x=-9999; mouse.y=-9999; }
+      function hexToRgba(hex, a){ let h = hex.replace('#',''); if(h.length===3){ h = h.split('').map(c=>c+c).join(''); } const num = parseInt(h,16); const r=(num>>16)&255, g=(num>>8)&255, b=num&255; return `rgba(${r},${g},${b},${a})`; }
+      window.addEventListener('resize', init); canvas.addEventListener('mousemove', onMouse); canvas.addEventListener('mouseleave', onLeave); init(); return { setColor(c){ LINE_COLOR = c; } };
+    })();
+    window.bg = bg;
+
+    // ===== Eventos UI =====
+    // bookmarks modal
+    qs('openBm').addEventListener('click', ()=> bmModal.classList.add('open'));
+    document.querySelectorAll('[data-close]').forEach(el=> el.addEventListener('click', ()=>{ qs('settingsModal').classList.remove('open'); bmModal.classList.remove('open'); }));
+    qs('bmSave2').addEventListener('click', addBookmark2);
+
+    // tarefas
+    qs('addTodo').addEventListener('click', addTodo);
+    qs('todoInput').addEventListener('keydown', e=>{ if(e.key==='Enter') addTodo(); });
+
+    // spotify
+    qs('spotifySave').addEventListener('click', ()=>{ const s = getSettings(); s.spotify = qs('spotifyUrl').value.trim(); saveSettings(s); setSpotifyUrl(s.spotify); });
+
+    // settings modal
+    const modal = qs('settingsModal');
+    function openSettings(){ modal.classList.add('open'); modal.setAttribute('aria-hidden','false'); }
+    function closeSettings(){ modal.classList.remove('open'); modal.setAttribute('aria-hidden','true'); }
+    qs('btnSettings').addEventListener('click', openSettings);
+    qs('settingsSave').addEventListener('click', ()=>{
+      const s = getSettings();
+      s.name = qs('setName').value.trim() || DEFAULTS.name;
+      s.region = qs('setRegion').value.trim() || DEFAULTS.region;
+      s.theme = qs('setTheme').value;
+      s.pomodoro = {
+        work: Math.max(1, parseInt(qs('setWork').value || DEFAULTS.pomodoro.work, 10)),
+        short: Math.max(1, parseInt(qs('setShort').value || DEFAULTS.pomodoro.short, 10)),
+        long: Math.max(1, parseInt(qs('setLong').value || DEFAULTS.pomodoro.long, 10)),
+        longEvery: Math.max(2, parseInt(qs('setLongEvery').value || DEFAULTS.pomodoro.longEvery, 10))
+      };
+      saveSettings(s); applySettings(); closeSettings(); renderPom();
+    });
+
+    // Pomodoro controls
+    qs('pomStart').addEventListener('click', startPom);
+    qs('pomPause').addEventListener('click', pausePom);
+    qs('pomReset').addEventListener('click', resetPom);
+
+    // Init
+    applySettings(); tickClock(); setQuoteOfDay(); renderBookmarks(); renderTodos(); renderPom();
+  </script>
+</body>
+</html>
