@@ -70,7 +70,7 @@ Abra `index.html` no navegador. Para editar temas e tempos do Pomodoro, clique n
 Utilizei este projeto para demonstrar a colegas como um **prompt bem estruturado** é capaz de gerar **todo o código** (UI, lógica e responsividade) **sem interações adicionais** — apenas colando o prompt uma única vez no ChatGPT.
 
 * **Ferramenta utilizada / Tool used:** ChatGPT — **GPT‑5 Thinking**.
-* **Data de geração / Generation date:** YYYY‑MM‑DD (preencha conforme sua execução).
+* **Data de geração / Generation date:** 2025-09-19 (preencha conforme sua execução).
 
 ---
 
